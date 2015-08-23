@@ -19,4 +19,5 @@ To use it:
 
     $ stash2jira --help
 
-LICENSE: MIT
+# License 
+MIT
