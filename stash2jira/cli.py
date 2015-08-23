@@ -1,4 +1,4 @@
-from ConfigParser import SafeConfigParser
+from six.moves.configparser import SafeConfigParser
 import csv
 import inspect
 from itertools import chain
@@ -7,6 +7,7 @@ import os
 from six.moves.urllib.parse import urlencode, urljoin
 import webbrowser
 from os.path import expanduser
+from six.moves import reduce
 
 import click as click
 import requests
@@ -50,18 +51,17 @@ def save_config(config_file, args, values):
         print("Config file written to {}".format(save_config))
 
 
-# TODO: username, project, repo verplicht maken
 @click.command()
 @click.option('--stash-url', help='URL to Stash REST API to connect to, e.g. http://stash.example.com/stash')
-@click.option('--stash-username', help='Username to connect to Stash REST API')
+@click.option('--stash-username', help='Username to connect to Stash REST API', required=True)
 @click.option('--stash-password', help='Password to connect to Stash REST API', prompt=True, hide_input=True,
               confirmation_prompt=False)
 @click.option('--jira-url', help='Base URL for output link, e.g. https://jira.example.com')
 @click.option('--jira-username', help='Username to connect to JIRA REST API')
 @click.option('--jira-password', help='Password to connect to JIRA REST API', prompt=True, hide_input=True,
               confirmation_prompt=False)
-@click.option('--project', help='Name of the project')
-@click.option('--repo', help='Name of the repository')
+@click.option('--project', help='Name of the project', required=True)
+@click.option('--repo', help='Name of the repository', required=True)
 @click.option('--since', help='Optional: Display all commits since this commit or tag')
 @click.option('--until', help='Optional: Display all commits until this branch, commit or tag')
 @click.option('--include-merge', default=False,
