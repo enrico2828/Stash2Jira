@@ -4,8 +4,7 @@ import inspect
 from itertools import chain
 import json
 import os
-from six.moves.urllib.parse import urlencode, urljoin
-from six.moves.urllib import urlparse
+from six.moves.urllib.parse import urlencode, urljoin, urlparse
 import webbrowser
 from os.path import expanduser
 from six.moves import reduce
@@ -25,8 +24,10 @@ CONFIG_VARS = [
     {'var': "until", 'error': 'End date not specified'}
 ]
 
+headers = ["key", "issuetype", "status", "fixVersions"]
 
-def load_from_config(config_file):
+
+def load_from_config(config_file, args, values):
     load_config = os.path.join(BASE_CONFIG_DIR, config_file)
     if os.path.exists(load_config):
         parser = SafeConfigParser()
@@ -36,6 +37,9 @@ def load_from_config(config_file):
             config[_var['var']] = parser.get('settings', _var['var'])
             if not config[_var]:
                 click.echo(_var['error'])
+
+        # TODO: cli args must overwrite config file
+
         return config
 
 
@@ -45,9 +49,9 @@ def save_to_config(config_file, args, values, verbose=False):
     parser.read(save_config)
     if not os.path.exists(save_config):
         parser.add_section('settings')
-    for i in args:
-        if i in [c['var'] for c in CONFIG_VARS]:
-            parser.set('settings', i, values[i])
+    for arg in args:
+        if arg in [c['var'] for c in CONFIG_VARS]:
+            parser.set('settings', arg, values[arg])
     with open(save_config, 'w') as f:
         parser.write(f)
         if verbose:
@@ -56,7 +60,7 @@ def save_to_config(config_file, args, values, verbose=False):
 
 def get_proxy(proxy_url):
     res = urlparse(proxy_url)
-    return {res['scheme'] + '://': res.geturl()}
+    return {res.scheme: res.geturl()}
 
 
 def get_jira_keys(include_merge, since, stash_password, stash_url, stash_username, until):
@@ -95,32 +99,35 @@ def open_in_browser(jira_url, jql_query, s, verbose=False):
             click.echo("Too much data to handle in browser")
 
 
-def export_to_csv(export_csv, jira_password, jira_url, jira_username, jql_query, proxy):
+def export_to_csv(export_csv, rows):
     with open(export_csv, 'w') as f:
         f_csv = csv.writer(f)
-        # TODO: externalize field choice to cli parameter
-        headers = ["key", "issuetype", "status", "fixVersions"]
-        rows = []
-        f_csv.writerow(headers)
-        total = 0
-        start_at = 0
-        while start_at < total or total == 0:
-            try:
-                # TODO: Inject config file in retrieve_jira_fields
-                # TODO: get method call out of export_to_csv
-                response_data = retrieve_jira_fields(headers, jira_password, jira_url, jira_username, jql_query,
-                                                         proxy, start_at)
-                for i in response_data["issues"]:
-                    # TODO: Clean lambda from row data selection
-                    rows.append((i["key"], i["fields"]["issuetype"]["name"], i["fields"]["status"]["name"],
-                                 reduce(lambda a, b: a + "," + b, [nx["name"] for nx in i["fields"]["fixVersions"]
-                                                                   if len(i["fields"]["fixVersions"])])))
+        f_csv.writerows(rows)
 
-                f_csv.writerows(rows)
-                total = int(response_data["total"])
-                start_at += int(response_data["maxResults"])
-            except KeyError:
-                pass
+
+def connect_to_jira(jira_password, jira_url, jira_username, jql_query, proxy):
+    total = 0
+    start_at = 0
+    rows = [tuple(headers)]
+    while start_at < total or total == 0:
+        try:
+            # TODO: Inject config file in retrieve_jira_fields
+            # TODO: get method call out of export_to_csv
+            response_data = retrieve_jira_fields(headers, jira_password, jira_url, jira_username, jql_query,
+                                                 proxy, start_at)
+            for i in response_data["issues"]:
+                # TODO: Clean lambda from row data selection
+                row_data = (i["key"], i["fields"]["issuetype"]["name"], i["fields"]["status"]["name"],
+                            reduce(lambda a, b: a + "," + b, [nx["name"] for nx in i["fields"]["fixVersions"] if
+                                                              len(i["fields"]["fixVersions"])]))
+                click.echo(row_data)
+                rows.append(row_data)
+
+            total = int(response_data["total"])
+            start_at += int(response_data["maxResults"])
+        except KeyError:
+            pass
+    return rows
 
 
 def retrieve_jira_fields(headers, jira_password, jira_url, jira_username, jql_query, proxy, start_at):
@@ -160,16 +167,16 @@ def retrieve_jira_fields(headers, jira_password, jira_url, jira_username, jql_qu
 @click.option('--load-config', help='Specifying the name of the config file to save/read. Given parameters override the'
                                     ' config file.')
 @click.option('--export-csv', help='Specify a csv-file to export to.')
-@click.option('--skip-browser', default=False, help='Whether to open the JIRA dashboard with the '
-                                                    'results in the browser. Defaults to true', type=bool)
+@click.option('--skip-browser', default=True, help='Whether to open the JIRA dashboard with the '
+                                                   'results in the browser. Defaults to true', type=bool)
 @click.option('--proxy', help='Specify which proxy to connect through e.g. https://proxy.url')
 def main(stash_url, stash_username, stash_password, jira_url, jira_username, jira_password, project, repo, since,
          until, include_merge, save_config, load_config, export_csv, skip_browser, proxy):
     frame = inspect.currentframe()
     args, _, _, values = inspect.getargvalues(frame)
 
-    save_to_config(save_config, args, values)
-    config_obj = load_from_config(load_config)
+    # config_obj = load_from_config(load_config, args, values)
+    # save_to_config(save_config, args, values)
 
     stash_url = urljoin(stash_url, 'stash/rest/api/1.0/projects/' + project + '/repos/' + repo + '/commits')
 
@@ -182,8 +189,10 @@ def main(stash_url, stash_username, stash_password, jira_url, jira_username, jir
     if not skip_browser:
         open_in_browser(jira_url, jql_query, s)
 
+    rows = connect_to_jira(jira_password, jira_url, jira_username, jql_query, proxy)
+
     if export_csv:
-        export_to_csv(export_csv, jira_password, jira_url, jira_username, jql_query, proxy)
+        export_to_csv(export_csv, rows)
 
 
 if __name__ == '__main__':
