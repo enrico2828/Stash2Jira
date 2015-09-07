@@ -1,17 +1,21 @@
-from six.moves.configparser import SafeConfigParser
+from collections import namedtuple
 import csv
 import inspect
 from itertools import chain
 import json
 import os
-from six.moves.urllib.parse import urlencode, urljoin, urlparse
 import webbrowser
 from os.path import expanduser
-from six.moves import reduce
 
 import click as click
 import requests
 from requests.auth import HTTPBasicAuth
+
+from six import iteritems, viewitems
+
+from six.moves import reduce
+from six.moves.configparser import SafeConfigParser
+from six.moves.urllib.parse import urlencode, urljoin, urlparse
 
 BASE_CONFIG_DIR = expanduser("~")
 
@@ -40,7 +44,7 @@ def load_from_config(config_file, args, values):
             config[_var['var']] = values[_var['var']]
         if _var["var"] not in config:
             click.echo(_var['error'])
-    return config
+    return namedtuple('GenericDict', config.keys())(**config)
 
 
 def save_to_config(config_file, config_obj, verbose=False):
@@ -49,7 +53,8 @@ def save_to_config(config_file, config_obj, verbose=False):
     parser.read(save_config)
     if not os.path.exists(save_config):
         parser.add_section('settings')
-    for k, v in config_obj.items():
+    click.echo(config_obj)
+    for k, v in viewitems(config_obj._asdict()):
         if v is not None:
             parser.set('settings', k, v)
     with open(save_config, 'w') as f:
@@ -107,26 +112,34 @@ def export_to_csv(export_csv, rows):
         f_csv.writerows(rows)
 
 
+def find(key, dictionary):
+    for k, v in iteritems(dictionary):
+        if k == key:
+            click.echo(v)
+            yield v
+        elif isinstance(v, dict):
+            for result in find(key, v):
+                yield result
+        elif isinstance(v, list):
+            for d in v:
+                for result in find(key, d):
+                    yield result
+
+
 # TODO: Inject config file in connect_to_jira
 def connect_to_jira(jira_password, jira_url, jira_username, jql_query, proxy):
     total = 0
     start_at = 0
-    # TODO: How the hell am I auto-magically gonna find out if a field is a dict, string or list? Plucking library?
-    headers = ["key", "issuetype", "status", "fixVersions", "issueLinks"]
-    rows = [tuple(headers)]
+    # TODO: Use this: http://funcy.readthedocs.org/en/latest/colls.html#get_in
+    headers = ("key", "issuetype", "status", "fixVersions", "issuelinks")
+    rows = [headers]
     while start_at < total or total == 0:
         try:
             response_data = retrieve_jira_fields(headers, jira_password, jira_url, jira_username, jql_query,
                                                  proxy, start_at)
             for i in response_data["issues"]:
-                # TODO: Find something to clean this mess up
                 delimiter = "/"
-                row_data = (i["key"], i["fields"]["issuetype"]["name"], i["fields"]["status"]["name"],
-                            # In case a field is a list, flatten it as a comma delimited string
-                            reduce(lambda a, b: a + delimiter + b, [nx["name"] for nx in i["fields"]["fixVersions"] if
-                                                              len(i["fields"]["fixVersions"])]),
-                            reduce(lambda a, b: a + delimiter + b, [nx["outwardIssue"]["key"] for nx in i["fields"]["issuelinks"] if
-                                                              len(i["fields"]["issuelinks"])]))
+                row_data = [list(find(k, i)) for k in headers]
                 click.echo(row_data)
                 rows.append(row_data)
 
@@ -134,7 +147,7 @@ def connect_to_jira(jira_password, jira_url, jira_username, jql_query, proxy):
             start_at += int(response_data["maxResults"])
         except KeyError:
             pass
-    return rows
+    return tuple(rows)
 
 
 # TODO: Inject config file in retrieve_jira_fields
