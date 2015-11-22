@@ -17,6 +17,7 @@ from six.moves.configparser import SafeConfigParser
 from six.moves.urllib.parse import urlencode, urljoin, urlparse
 
 
+
 # OS-independent location of home folder
 BASE_CONFIG_DIR = expanduser("~")
 
@@ -115,9 +116,9 @@ def get_jira_keys(include_merge, since, stash_password, stash_url, stash_usernam
         params = {
             'since': since,
             'until': until,
-            'start': start
+            'start': start,
+            'limit': 99999
         }
-
         r = requests.get(stash_url, params=params, auth=HTTPBasicAuth(username=stash_username, password=stash_password))
         response_data = json.loads(r.text)
         for c in response_data['values']:
@@ -146,11 +147,10 @@ def open_in_browser(jira_url, jql_query, jira_keys, verbose=False):
         params = {
             'jql': jql_query
         }
-        b_url = urljoin(urljoin(jira_url, 'issues'), '?' + urlencode(params))
+        b_url = urljoin(urljoin(jira_url, 'issues/'), '?' + urlencode(params))
         webbrowser.open(b_url)
     else:
-        if verbose:
-            click.echo("Too much data to handle in browser")
+        click.echo("Too much data to handle in browser")
 
 
 # TODO: Inject config object in export_to_csv
@@ -299,15 +299,24 @@ def main(stash_url, stash_username, stash_password, jira_url, jira_username, jir
 
     click.echo("Connecting to Stash API")
     jira_keys = get_jira_keys(include_merge, since, stash_password, stash_url, stash_username, until, project, repo)
-    jql_query = 'issuekey in (' + reduce(lambda a, b: a + ", " + b, jira_keys) + ')'
 
     if not skip_browser:
-        open_in_browser(jira_url, jql_query, jira_keys)
-
-    click.echo("Connecting to Jira API")
-    rows = connect_to_jira(jira_password, jira_url, jira_username, jql_query, proxy)
+        click.echo("Opening results in browser...")
+        temp_jira_keys = list()
+        counter = 0
+        for i in jira_keys:
+          counter = counter + 1
+          temp_jira_keys.append(i)
+          maxissues = len(jira_keys)
+          if len(temp_jira_keys) == 150 or counter == maxissues:
+                    jql_query = 'issuekey in (' + reduce(lambda a, b: a + ", " + b, temp_jira_keys) + ')'
+                    open_in_browser(jira_url, jql_query, temp_jira_keys)
+                    del temp_jira_keys[:]
 
     if export_csv:
+        click.echo("Connecting to Jira API")
+        rows = connect_to_jira(jira_password, jira_url, jira_username, jql_query, proxy)
+
         click.echo("Exporting to csv")
         export_to_csv(export_csv, rows)
 
