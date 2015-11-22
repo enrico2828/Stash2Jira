@@ -115,3 +115,5 @@ docs/_build/
 # PyBuilder
 target/
 
+# Project-specific files
+out.csv

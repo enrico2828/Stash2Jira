@@ -10,8 +10,7 @@ Here are [installation instructions](https://github.com/mitsuhiko/pipsi#readme).
 
 Simply run:
 
-    $ pipsi install stash2jira
-
+    $ pipsi install git+https://github.com/praetore/Stash2Jira
 
 # Usage
 
