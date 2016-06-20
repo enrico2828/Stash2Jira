@@ -132,8 +132,8 @@ def get_jira_keys(config_obj):
         if r.ok:
             for c in response_data['values']:
                 parents_num = len(c['parents'])
-                if 'attributes' in c.keys() and (parents_num < 2 or config_obj.include_merge):
-                    key_ = c['attributes']['jira-key']
+                if 'properties' in c.keys() and (parents_num < 2 or config_obj.include_merge):
+                    key_ = c['properties']['jira-key']
                     jira_keys.append(key_)
             last_page = response_data['isLastPage']
             if not last_page:
